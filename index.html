@@ -1,109 +1,322 @@
-<!DOCTYPE html>
-<html lang="zh-Hant">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
-<title>紫微排盤</title>
+(function(){
+  'use strict';
+  const E = window.ZiweiEngine;
+  const STORAGE_KEY = 'zwds_charts_v1';
+  const mod12 = (n) => ((n % 12) + 12) % 12;
 
-<!-- PWA / iOS 加入主畫面設定 -->
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#241b3a">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="紫微排盤">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
-<link rel="icon" href="icons/icon-192.png">
+  const BRANCH_GRID = {
+    5:{row:1,col:1}, 6:{row:1,col:2}, 7:{row:1,col:3}, 8:{row:1,col:4},
+    4:{row:2,col:1}, 9:{row:2,col:4},
+    3:{row:3,col:1}, 10:{row:3,col:4},
+    2:{row:4,col:1}, 1:{row:4,col:2}, 0:{row:4,col:3}, 11:{row:4,col:4}
+  };
 
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
+  // ---------- DOM refs ----------
+  const $ = (id) => document.getElementById(id);
+  const formView = $('formView'), chartView = $('chartView');
+  const chartForm = $('chartForm');
+  const fHour = $('fHour'), fDate = $('fDate'), fName = $('fName'), fUnknownHour = $('fUnknownHour');
+  const drawer = $('chartList'), drawerMask = $('drawerMask'), drawerItems = $('chartListItems');
+  let selectedGender = '男';
+  let currentChartId = null;
 
-<div id="app">
+  // ---------- 初始化下拉選單 ----------
+  E.HOUR_LABEL.forEach((label, idx) => {
+    const opt = document.createElement('option');
+    opt.value = idx; opt.textContent = label;
+    fHour.appendChild(opt);
+  });
 
-  <!-- 頂部列 -->
-  <header class="topbar">
-    <button id="btnMenu" class="icon-btn" aria-label="命盤列表">☰</button>
-    <h1>紫微排盤</h1>
-    <button id="btnNew" class="icon-btn" aria-label="新增命盤">＋</button>
-  </header>
+  document.querySelectorAll('.seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.seg-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      selectedGender = btn.dataset.gender;
+    });
+  });
 
-  <!-- 命盤清單側欄 -->
-  <aside id="chartList" class="drawer">
-    <div class="drawer-head">
-      <span>我的命盤</span>
-      <button id="btnCloseDrawer" class="icon-btn">✕</button>
-    </div>
-    <div id="chartListItems" class="drawer-body"></div>
-  </aside>
-  <div id="drawerMask" class="drawer-mask"></div>
+  fUnknownHour.addEventListener('change', () => {
+    fHour.disabled = fUnknownHour.checked;
+  });
 
-  <!-- 輸入表單 -->
-  <section id="formView" class="view">
-    <form id="chartForm">
-      <h2>建立新命盤</h2>
-      <label>姓名 / 稱呼
-        <input type="text" id="fName" placeholder="例如：小明、我自己" required>
-      </label>
-      <label>性別
-        <div class="seg">
-          <button type="button" class="seg-btn active" data-gender="男">男</button>
-          <button type="button" class="seg-btn" data-gender="女">女</button>
+  // ---------- 儲存 ----------
+  function loadAll(){
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; }
+    catch(e){ return []; }
+  }
+  function saveAll(list){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  }
+  function saveChart(rec){
+    const list = loadAll();
+    list.unshift(rec);
+    saveAll(list);
+  }
+  function deleteChart(id){
+    const list = loadAll().filter(r => r.id !== id);
+    saveAll(list);
+  }
+  function getChart(id){
+    return loadAll().find(r => r.id === id);
+  }
+
+  // ---------- 畫面切換 ----------
+  function showForm(){
+    formView.classList.remove('hidden');
+    chartView.classList.add('hidden');
+    currentChartId = null;
+  }
+  function showChart(){
+    formView.classList.add('hidden');
+    chartView.classList.remove('hidden');
+  }
+  function openDrawer(){ drawer.classList.add('open'); drawerMask.classList.add('open'); renderDrawer(); }
+  function closeDrawer(){ drawer.classList.remove('open'); drawerMask.classList.remove('open'); }
+
+  $('btnMenu').addEventListener('click', openDrawer);
+  $('btnCloseDrawer').addEventListener('click', closeDrawer);
+  drawerMask.addEventListener('click', closeDrawer);
+  $('btnNew').addEventListener('click', () => { showForm(); closeDrawer(); });
+  $('btnBack').addEventListener('click', () => { showForm(); });
+
+  function renderDrawer(){
+    const list = loadAll();
+    drawerItems.innerHTML = '';
+    if (list.length === 0){
+      drawerItems.innerHTML = '<div class="empty-hint">還沒有任何命盤唷 👋<br>按右上角「＋」開始排第一張命盤吧！</div>';
+      return;
+    }
+    list.forEach(rec => {
+      const div = document.createElement('div');
+      div.className = 'chart-item';
+      div.innerHTML = `<div><div class="ci-name">${escapeHtml(rec.name)}</div>
+        <span class="ci-meta">${rec.gender} · ${rec.solarYear}/${pad(rec.solarMonth)}/${pad(rec.solarDay)}</span></div>
+        <span>›</span>`;
+      div.addEventListener('click', () => {
+        closeDrawer();
+        openChart(rec.id);
+      });
+      drawerItems.appendChild(div);
+    });
+  }
+  function pad(n){ return String(n).padStart(2,'0'); }
+  function escapeHtml(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+  // ---------- 表單送出 ----------
+  chartForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const dateVal = fDate.value; // yyyy-mm-dd
+    if (!dateVal){ alert('請選擇出生日期'); return; }
+    const [y,m,d] = dateVal.split('-').map(Number);
+    const rec = {
+      id: 'c' + Date.now(),
+      name: fName.value.trim() || '未命名',
+      gender: selectedGender,
+      solarYear: y, solarMonth: m, solarDay: d,
+      hourIndex: fUnknownHour.checked ? 6 : Number(fHour.value), // 未知時辰時先用午時佔位，畫面會提示
+      unknownHour: fUnknownHour.checked,
+      createdAt: Date.now()
+    };
+    try {
+      // 先試算一次，確認日期換算不出錯
+      E.calculateChart(rec);
+    } catch(err){
+      alert('排盤失敗：' + err.message);
+      return;
+    }
+    saveChart(rec);
+    chartForm.reset();
+    document.querySelectorAll('.seg-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelector('.seg-btn[data-gender="男"]').classList.add('active');
+    selectedGender = '男';
+    fHour.disabled = false;
+    openChart(rec.id);
+  });
+
+  $('btnDelete').addEventListener('click', () => {
+    if (!currentChartId) return;
+    if (!confirm('確定要刪除這張命盤嗎？此動作無法復原。')) return;
+    deleteChart(currentChartId);
+    showForm();
+  });
+
+  // ---------- 開啟並渲染命盤 ----------
+  let currentChart = null, currentRec = null;
+
+  function openChart(id){
+    const rec = getChart(id);
+    if (!rec){ alert('找不到這張命盤'); showForm(); return; }
+    currentChartId = id;
+    currentRec = rec;
+    currentChart = E.calculateChart(rec);
+    selectedPalaceBranch = null;
+    showChart();
+
+    $('chartName').textContent = rec.name;
+    $('chartMeta').textContent = `${rec.gender} · 國曆 ${rec.solarYear}/${pad(rec.solarMonth)}/${pad(rec.solarDay)}` +
+      (rec.unknownHour ? '（時辰未知，僅供參考）' : ` ${E.HOUR_LABEL[rec.hourIndex].split(' ')[0]}`);
+
+    populateLiunianYears(rec.solarYear);
+    renderChart();
+  }
+
+  function populateLiunianYears(birthYear){
+    const sel = $('liunianYear');
+    sel.innerHTML = '';
+    const nowYear = new Date().getFullYear();
+    const start = birthYear;
+    const end = birthYear + 100;
+    for (let y = start; y <= end; y++){
+      const opt = document.createElement('option');
+      opt.value = y; opt.textContent = y + '年';
+      if (y === nowYear) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    if (nowYear < start || nowYear > end) sel.value = start;
+  }
+  $('liunianYear').addEventListener('change', renderChart);
+  $('toggleOverlay').addEventListener('change', renderChart);
+
+  let selectedPalaceBranch = null; // 目前點選看三方四正的宮位
+
+  function sanfangSet(branch){
+    return [branch, mod12(branch+4), mod12(branch+8), mod12(branch+6)];
+  }
+
+  function renderChart(){
+    if (!currentChart) return;
+    const chart = currentChart;
+    const viewYear = Number($('liunianYear').value);
+    const ln = E.getLiuNianInfo(chart, viewYear);
+
+    const grid = $('ziweiGrid');
+    grid.innerHTML = '';
+
+    // 中央資訊格
+    const center = document.createElement('div');
+    center.className = 'center-info';
+    center.style.gridColumn = '2 / span 2';
+    center.style.gridRow = '2 / span 2';
+    center.innerHTML = `
+      <div class="ci-title">${escapeHtml(currentRec.name)}　${currentRec.gender}</div>
+      <div>國曆 ${currentRec.solarYear}/${pad(currentRec.solarMonth)}/${pad(currentRec.solarDay)}
+        ${currentRec.unknownHour ? '' : E.HOUR_LABEL[currentRec.hourIndex].split(' ')[0]}</div>
+      <div>農曆 ${chart.lunar.lYear}年${chart.lunar.IMonthCn}${chart.lunar.IDayCn}</div>
+      <div>生年干支：${chart.yearGanZhi}（${chart.lunar.Animal}年）</div>
+      <div>五行局：${chart.bureauName}</div>
+      <div>身宮在【${chart.palaceByBranch[chart.bodyPalaceIdx].palaceName}】</div>
+      ${currentRec.unknownHour ? '<div style="color:var(--danger)">⚠️ 時辰未知，命宮/身宮及部分星曜僅供參考</div>' : ''}
+    `;
+    grid.appendChild(center);
+
+    const showOverlay = $('toggleOverlay').checked;
+    const sanfang = selectedPalaceBranch !== null ? sanfangSet(selectedPalaceBranch) : null;
+
+    for (let branch = 0; branch < 12; branch++){
+      const p = chart.palaceByBranch[branch];
+      const pos = BRANCH_GRID[branch];
+      const div = document.createElement('div');
+      let cls = 'palace' + (p.isLife ? ' life':'') + (p.isBody ? ' body':'');
+      if (sanfang){
+        if (branch === selectedPalaceBranch) cls += ' sf-self';
+        else if (sanfang.includes(branch)) cls += ' sf-related';
+      }
+      div.className = cls;
+      div.style.gridColumn = pos.col;
+      div.style.gridRow = pos.row;
+      div.dataset.branch = branch;
+
+      const daxian = chart.daxianList.find(d => d.branch === branch);
+      const isCurDaxian = ln.curDaxian && ln.curDaxian.branch === branch;
+      const isXiaoxian = ln.xiaoxianBranch === branch;
+      const isLiunian = ln.liuNianPalaceBranch === branch;
+
+      let starsHtml = '';
+      starsHtml += starRowHtml(p.stars.main, 'main', chart, ln, branch);
+      starsHtml += starRowHtml(p.stars.lucky, 'lucky', chart, ln, branch);
+      starsHtml += starRowHtml(p.stars.bad, 'bad', chart, ln, branch);
+      starsHtml += starRowHtml(p.stars.minor, 'minor', chart, ln, branch);
+
+      let tags = '';
+      if (isCurDaxian) tags += '<span class="ptag daxian">大</span>';
+      if (isXiaoxian) tags += '<span class="ptag xiaoxian">小</span>';
+      if (isLiunian) tags += '<span class="ptag liunian">年</span>';
+
+      let overlayHtml = '';
+      if (showOverlay){
+        let dxTag = '', lnTag = '';
+        if (ln.curDaxian){
+          const dxRel = mod12(branch - ln.curDaxian.branch);
+          dxTag = `<span class="overlay-tag dx">大${E.PALACE_ABBR[dxRel]}</span>`;
+        }
+        const lnRel = mod12(branch - ln.liuNianPalaceBranch);
+        lnTag = `<span class="overlay-tag ln">流${E.PALACE_ABBR[lnRel]}</span>`;
+        overlayHtml = `<div class="overlay-names">${dxTag}${lnTag}</div>`;
+      }
+
+      div.innerHTML = `
+        <div class="palace-age">${daxian ? daxian.startAge+'-'+daxian.endAge : ''}</div>
+        <div class="palace-head">
+          <span>${p.ganName}${p.branchName}</span>
         </div>
-      </label>
-      <label>國曆出生日期
-        <input type="date" id="fDate" min="1900-02-01" max="2100-12-01" required>
-      </label>
-      <label>出生時辰
-        <select id="fHour" required></select>
-      </label>
-      <label class="checkbox-row">
-        <input type="checkbox" id="fUnknownHour">
-        <span>不確定確切時辰(將以命盤概略呈現，準確度會下降)</span>
-      </label>
-      <button type="submit" class="btn-primary">開始排盤</button>
-    </form>
-  </section>
+        ${starsHtml}
+        <div class="palace-tags">${tags}</div>
+        ${overlayHtml}
+        <div class="palace-name">${p.palaceName}${p.isBody ? '<span class="body-mark">(身)</span>' : ''}</div>
+      `;
+      div.addEventListener('click', () => {
+        selectedPalaceBranch = (selectedPalaceBranch === branch) ? null : branch;
+        renderChart();
+      });
+      grid.appendChild(div);
+    }
 
-  <!-- 命盤顯示 -->
-  <section id="chartView" class="view hidden">
-    <div class="chart-toolbar">
-      <button id="btnBack" class="icon-btn">← 返回</button>
-      <div class="chart-title">
-        <strong id="chartName">—</strong>
-        <span id="chartMeta"></span>
-      </div>
-      <button id="btnDelete" class="icon-btn danger" aria-label="刪除">🗑</button>
-    </div>
+    updateSanfangHint(chart);
 
-    <div class="liunian-bar">
-      <label for="liunianYear">流年：</label>
-      <select id="liunianYear"></select>
-      <span id="liunianInfo"></span>
-    </div>
+    // 流年資訊列
+    const sihuaText = Object.keys(ln.sihuaMap).map(star => star + ln.sihuaMap[star].join('')).join('、');
+    $('liunianInfo').textContent = `${ln.gz.text}年 · 虛歲${ln.xuSui}歲` +
+      (ln.curDaxian ? ` · 大限${ln.curDaxian.startAge}-${ln.curDaxian.endAge}歲` : '') +
+      (sihuaText ? ` · 流年四化：${sihuaText}` : '');
+  }
 
-    <div id="ziweiGrid" class="ziwei-grid"></div>
+  function updateSanfangHint(chart){
+    const hint = $('sanfangHint');
+    if (selectedPalaceBranch === null){
+      hint.textContent = '點任一宮位，可看該宮的三方四正';
+      return;
+    }
+    const p0 = chart.palaceByBranch[selectedPalaceBranch];
+    const opp = chart.palaceByBranch[mod12(selectedPalaceBranch+6)];
+    const t1 = chart.palaceByBranch[mod12(selectedPalaceBranch+4)];
+    const t2 = chart.palaceByBranch[mod12(selectedPalaceBranch+8)];
+    hint.innerHTML = `<strong>${p0.palaceName}</strong> 三方四正：對宮【${opp.palaceName}】、三合【${t1.palaceName}】【${t2.palaceName}】`;
+  }
 
-    <div class="legend">
-      <span class="dot main"></span>主星
-      <span class="dot lucky"></span>六吉/祿存
-      <span class="dot bad"></span>六煞
-      <span class="dot minor"></span>雜曜
-      <span class="tag daxian-tag">大</span>大限
-      <span class="tag xiaoxian-tag">小</span>小限
-      <span class="tag liunian-tag">年</span>流年
-    </div>
+  function starRowHtml(stars, cls, chart, ln, branch){
+    if (!stars || stars.length === 0) return '';
+    const items = stars.map(s => {
+      let mark = '';
+      if (s.sihua && s.sihua.length){
+        mark = s.sihua.map(x => `<span class="sihua-mark">${x[1]}</span>`).join('');
+      }
+      let liuMark = '';
+      if (ln.sihuaMap[s.name]){
+        liuMark = `<span class="sihua-mark" style="color:#b0553d">流${ln.sihuaMap[s.name].map(x=>x.slice(-1)).join('')}</span>`;
+      }
+      return `<span class="star ${cls}">${s.name}${mark}${liuMark}</span>`;
+    }).join('');
+    return `<div class="star-row">${items}</div>`;
+  }
 
-    <details class="notes">
-      <summary>排盤說明與名詞小抄</summary>
-      <p>本命盤採「中州派」主流排法：以國曆生日自動換算農曆，依生月生時定命宮、身宮，依命宮干支查五行局定紫微星位置，再依序排出十四主星、六吉六煞、祿存天馬，以及紅鸞天喜、孤辰寡宿、天刑天姚、天才天壽、三台八座、恩光天貴、龍池鳳閣、華蓋咸池等雜曜，並附本命四化與流年四化。</p>
-      <p>若出生月為農曆閏月，程式會併入相鄰月份計算，屬常見簡化排法；若你追求分秒不差，建議同時對照其他命理老師的排盤交叉確認 —— 畢竟連占星師自己都會偶爾對錯月相，何況是人腦排紫微斗數。</p>
-    </details>
-  </section>
+  // ---------- 啟動 ----------
+  showForm();
+  renderDrawer();
 
-</div>
-
-<script src="lunar-core.js"></script>
-<script src="ziwei-engine.js"></script>
-<script src="app.js"></script>
-</body>
-</html>
+  // ---------- 註冊 Service Worker (可離線 / 加入主畫面用) ----------
+  if ('serviceWorker' in navigator){
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('service-worker.js').catch(()=>{});
+    });
+  }
+})();

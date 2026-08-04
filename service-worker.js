@@ -1,44 +1,15 @@
-const CACHE_NAME = 'zwds-cache-v1';
-const ASSETS = [
-  './',
-  './index.html',
-  './style.css',
-  './app.js',
-  './ziwei-engine.js',
-  './lunar-core.js',
-  './manifest.json',
-  './icons/icon-192.png',
-  './icons/icon-512.png'
-];
-
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS)).catch(()=>{})
-  );
-  self.skipWaiting();
-});
-
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)))
-    )
-  );
-  self.clients.claim();
-});
-
-self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const fetchPromise = fetch(event.request).then((networkRes) => {
-        if (networkRes && networkRes.status === 200){
-          const clone = networkRes.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        }
-        return networkRes;
-      }).catch(() => cached);
-      return cached || fetchPromise;
-    })
-  );
-});
+{
+  "name": "紫微排盤",
+  "short_name": "紫微排盤",
+  "description": "個人化紫微斗數排盤工具，可儲存多筆命盤、查看大限流年",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#181225",
+  "theme_color": "#241b3a",
+  "orientation": "portrait",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
