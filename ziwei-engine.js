@@ -11,7 +11,8 @@
   const HOUR_LABEL = ['子時 23:00-00:59','丑時 01:00-02:59','寅時 03:00-04:59','卯時 05:00-06:59',
     '辰時 07:00-08:59','巳時 09:00-10:59','午時 11:00-12:59','未時 13:00-14:59',
     '申時 15:00-16:59','酉時 17:00-18:59','戌時 19:00-20:59','亥時 21:00-22:59'];
-  const PALACE_NAMES = ['命宮','兄弟','夫妻','子女','財帛','疾厄','遷移','交友','官祿','田宅','福德','父母'];
+  // 十二宮名稱：以命宮為起點，依「地支索引遞減」方向排列(即圖上逆時針)
+  const PALACE_NAMES = ['命宮','父母','福德','田宅','官祿','僕役','遷移','疾厄','財帛','子女','夫妻','兄弟'];
 
   function mod12(n){ return ((n % 12) + 12) % 12; }
   function mod10(n){ return ((n % 10) + 10) % 10; }
@@ -259,7 +260,7 @@
     // 依 12 格組裝
     const palaceByBranch = new Array(12);
     for (let branch = 0; branch < 12; branch++) {
-      const relIdx = mod12(branch - lifePalaceIdx); // 0=命宮 1=兄弟...
+      const relIdx = mod12(branch - lifePalaceIdx); // 0=命宮，沿地支遞增方向(圖上順時針)往下排列
       const gan = gongGan[branch];
       const starsHere = { main: [], lucky: [], bad: [], minor: [] };
       Object.keys(starPos).forEach(sName => {
